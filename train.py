@@ -32,7 +32,13 @@ except ImportError:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, dataset.brdf_dim, dataset.brdf_mode, dataset.brdf_envmap_res)
+    target_brdf_dim = dataset.brdf_dim
+    residual_from_iter = getattr(opt, "brdf_residual_from_iter", -1)
+    initial_brdf_dim = target_brdf_dim
+    if pipe.brdf and target_brdf_dim > 0 and residual_from_iter > 0:
+        initial_brdf_dim = 0
+
+    gaussians = GaussianModel(dataset.sh_degree, initial_brdf_dim, dataset.brdf_mode, dataset.brdf_envmap_res)
 
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
@@ -46,7 +52,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
     viewpoint_stack = None
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(opt.iterations), desc="Training progress")
-    for iteration in range(1, opt.iterations + 1): 
+    residual_enabled = (initial_brdf_dim > 0) or (residual_from_iter <= 0)
+    for iteration in range(1, opt.iterations + 1):
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:
@@ -67,6 +74,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations):
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
+
+        # Late enable residual BRDF features if requested
+        if pipe.brdf and not residual_enabled and target_brdf_dim > 0 and iteration >= residual_from_iter:
+            print(f"\n[ITER {iteration}] Enabling residual BRDF features with brdf_dim={target_brdf_dim}.")
+            gaussians.enable_brdf_residual(target_brdf_dim)
+            residual_enabled = True
 
         # Pick a random Camera
         if not viewpoint_stack:
