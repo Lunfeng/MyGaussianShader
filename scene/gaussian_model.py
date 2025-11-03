@@ -239,6 +239,29 @@ class GaussianModel:
                                         lr_delay_mult=training_args.brdf_mlp_lr_delay_mult,
                                         max_steps=training_args.brdf_mlp_lr_max_steps)
 
+    def enable_brdf_residual(self, brdf_dim: int):
+        if not self.brdf or self.brdf_mode != "envmap":
+            raise RuntimeError("Residual BRDF features are only supported for envmap BRDF models.")
+        if brdf_dim <= 0:
+            raise ValueError("brdf_dim must be greater than 0 when enabling residual colors.")
+        if brdf_dim == self.brdf_dim:
+            return
+        if brdf_dim < self.brdf_dim:
+            raise ValueError("brdf_dim must be greater than or equal to the current value.")
+
+        device = self._features_dc.device
+        dtype = self._features_dc.dtype
+        num_points = self._xyz.shape[0]
+        new_features_rest = torch.zeros((num_points, 3, (brdf_dim + 1) ** 2), device=device, dtype=dtype)
+
+        if self.brdf_dim > 0 and self._features_rest.numel() > 0:
+            prev_coeff_count = (self.brdf_dim + 1) ** 2
+            new_features_rest[:, :, :prev_coeff_count] = self._features_rest
+
+        optimizable_tensors = self.replace_tensor_to_optimizer(new_features_rest, "f_rest")
+        self._features_rest = optimizable_tensors["f_rest"]
+        self.brdf_dim = brdf_dim
+
     def training_setup_SHoptim(self, training_args):
         self.fix_brdf_lr = training_args.fix_brdf_lr
         self.percent_dense = training_args.percent_dense
@@ -440,12 +463,14 @@ class GaussianModel:
                 continue
             if group["name"] == name:
                 stored_state = self.optimizer.state.get(group['params'][0], None)
-                stored_state["exp_avg"] = torch.zeros_like(tensor)
-                stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
-
-                del self.optimizer.state[group['params'][0]]
-                group["params"][0] = nn.Parameter(tensor.requires_grad_(True))
-                self.optimizer.state[group['params'][0]] = stored_state
+                if stored_state is not None:
+                    stored_state["exp_avg"] = torch.zeros_like(tensor)
+                    stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
+                    del self.optimizer.state[group['params'][0]]
+                new_param = nn.Parameter(tensor.requires_grad_(True))
+                group["params"][0] = new_param
+                if stored_state is not None:
+                    self.optimizer.state[new_param] = stored_state
 
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors

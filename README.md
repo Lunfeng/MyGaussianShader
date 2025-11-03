@@ -62,7 +62,13 @@ conda activate gaussian_shader
 ## Running
 Download the [example data](https://drive.google.com/file/d/1bSv0soQtjbRj9S9Aq9uQ27EW4wwY--6q/view?usp=sharing) and put it to the ``data`` folder. Execute the optimizer using the following command:
 ```shell
-python train.py -s data/horse_blender --eval -m output/horse_blender -w --brdf_dim 0 --sh_degree -1 --lambda_predicted_normal 2e-1 --brdf_env 512 
+python train.py -s data/horse_blender --eval -m output/horse_blender -w --brdf_dim 0 --sh_degree -1 --lambda_predicted_normal 2e-1 --brdf_env 512
+
+Residual BRDF colors can now be enabled in the later stage of training by passing `--brdf_residual_from_iter <iteration>` (use a value ≤ 0 to keep the residual active from the beginning, which is the previous default). For example, to activate a non-zero `brdf_dim` after 21k iterations you can run:
+
+```
+python train.py -s data/horse_blender --eval -m output/horse_blender -w --brdf_dim 3 --sh_degree -1 --lambda_predicted_normal 2e-1 --brdf_env 512 --brdf_residual_from_iter 21000
+```
 ```
 
 ## Rendering
