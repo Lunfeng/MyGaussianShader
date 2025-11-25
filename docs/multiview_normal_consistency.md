@@ -62,6 +62,7 @@ for (y, x) in sampled_pixels:
             mask=visibility_mask[v],
             camera_idx=v,
         )
+        weight_v = compute_confidence(point_world, depth_map_per_view[v], v)
         view_weights.append(weight_v)
 
     if len(normals_world) < 2:
@@ -129,3 +130,7 @@ w_v = visibility_mask[v][0, y, x] * exp(-(|Δd_v| / σ_d)) * (1 - cos θ_v)
 - **可见性/alpha 掩码**：本工程没有单独的 `visibility_mask` 张量，直接使用渲染输出的 `render_pkg["alpha"]` 作为可见性掩码即可，形状为 `(1, H, W)`，值域接近 [0,1]，其中低值表示遮挡/背景、高值表示前景【F:gaussian_renderer/__init__.py†L222-L248】。
 - **相机内外参**：`Camera.get_calib_matrix_nerf()` 提供反投影/重投影所需的 `intrinsic_matrix` 与 `extrinsic_matrix`，其中外参旋转 `R` 即 `camera_to_world_rot[v]`【F:scene/cameras.py†L70-L85】。
 将主视角像素通过 `depth` 与 `extrinsic_matrix` 反投影得到 `point_world`，再用目标视角的投影矩阵重投影并与对应 `depth` 相减即可得到 `Δd_v`，无需新增数据通路。
+- **置信度权重**：`compute_confidence` 可结合深度一致性（重投影误差小则权重大）、视差（大视差更有约束力）、光度残差等信息。
+- **旋转求解**：`procrustes_optimal_rotation` 可用 SVD 的闭式解；若想更简单可直接使用余弦距离而不显式求 `Q_v`，等价于假设跨视角法线仅受轻微噪声。
+- **调度策略**：在 `predicted_normal_loss` 启动后延迟开启 `λ_mv`（例如迭代 > 10k），或按“先小后大”的权重曲线平滑引入，避免早期噪声。
+- **可微性**：上述运算均可在 PyTorch 中实现；SVD 与矩阵乘法在 autograd 下可正常反传。
